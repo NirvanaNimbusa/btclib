@@ -75,12 +75,12 @@ def _index_int_from_str(s: str) -> int:
 
 def _str_from_index_int(i: int, hardening: str = "'") -> str:
 
+    if hardening not in ("'", "h", "H"):
+        raise BTClibValueError(f"invalid hardening symbol: {hardening}")
     if not 0 <= i <= 0xFFFFFFFF:
         raise BTClibValueError(f"invalid index: {i}")
     if i < 0x80000000:
         return str(i)
-    if hardening not in ("'", "h", "H"):
-        raise BTClibValueError(f"invalid hardening symbol {hardening}")
     return str(i - 0x80000000) + hardening
 
 
@@ -200,8 +200,9 @@ class BIP32KeyData(DataClassJsonMixin):
                 raise BTClibValueError(err_msg)
             try:
                 ec.y(int.from_bytes(self.key[1:], byteorder="big"))
-            except BTClibValueError:
-                raise BTClibValueError(f"invalid public key: 0x{self.key.hex()}")
+            except BTClibValueError as e:
+                err_msg = f"invalid public key: 0x{self.key.hex()}"
+                raise BTClibValueError(err_msg) from e
         else:
             raise BTClibValueError(
                 f"unknown extended key version: 0x{self.version.hex()}"
@@ -235,7 +236,7 @@ def rootxprv_from_seed(
         raise BTClibValueError(
             f"too many bits for seed: {bitlenght} in '{hex_string(seed)}'"
         )
-    hd = hmac.digest(b"Bitcoin seed", seed, "sha512")
+    hd = hmac.new(b"Bitcoin seed", seed, "sha512").digest()
     k = b"\x00" + hd[:32]
     v = bytes_from_octets(version, 4)
     if v not in _XPRV_VERSIONS_ALL:
@@ -380,10 +381,6 @@ class _ExtendedBIP32KeyData(BIP32KeyData):
 
 def __ckd(key_data: _ExtendedBIP32KeyData, index: int) -> None:
 
-    # FIXME the following check should be enforced
-    # if key_data.depth == 0 and index[0] < 0x80:
-    #    raise UserWarning("public derivation at depth one level")
-
     # key_data is a prvkey
     if key_data.key[0] == 0:
         key_data.depth += 1
@@ -391,13 +388,13 @@ def __ckd(key_data: _ExtendedBIP32KeyData, index: int) -> None:
         key_data.parent_fingerprint = hash160(Pbytes)[:4]
         key_data.index = index
         if key_data.is_hardened:
-            h = hmac.digest(
+            h = hmac.new(
                 key_data.chain_code, key_data.key + index.to_bytes(4, "big"), "sha512"
-            )
+            ).digest()
         else:  # normal derivation
-            h = hmac.digest(
+            h = hmac.new(
                 key_data.chain_code, Pbytes + index.to_bytes(4, "big"), "sha512"
-            )
+            ).digest()
         key_data.chain_code = h[32:]
         offset = int.from_bytes(h[:32], byteorder="big")
         key_data.q = (key_data.q + offset) % ec.n
@@ -410,9 +407,9 @@ def __ckd(key_data: _ExtendedBIP32KeyData, index: int) -> None:
         key_data.index = index
         if key_data.is_hardened:
             raise BTClibValueError("invalid hardened derivation from public key")
-        h = hmac.digest(
+        h = hmac.new(
             key_data.chain_code, key_data.key + index.to_bytes(4, "big"), "sha512"
-        )
+        ).digest()
         key_data.chain_code = h[32:]
         offset = int.from_bytes(h[:32], byteorder="big")
         Offset = mult(offset)
@@ -564,7 +561,7 @@ def crack_prvkey(parent_xpub: BIP32Key, child_xprv: BIP32Key) -> bytes:
 
     p.version = c.version
 
-    h = hmac.digest(p.chain_code, p.key + c.index.to_bytes(4, "big"), "sha512")
+    h = hmac.new(p.chain_code, p.key + c.index.to_bytes(4, "big"), "sha512").digest()
     child_q = int.from_bytes(c.key[1:], byteorder="big")
     offset = int.from_bytes(h[:32], byteorder="big")
     parent_q = (child_q - offset) % ec.n
