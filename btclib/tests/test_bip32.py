@@ -34,7 +34,6 @@ from btclib.bip32 import (
     xpub_from_xprv,
 )
 from btclib.exceptions import BTClibValueError
-from btclib.hashes import fingerprint
 
 
 def test_indexes_from_bip32_path_str() -> None:
